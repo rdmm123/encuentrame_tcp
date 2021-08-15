@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:telephony/telephony.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:socket_io_client/socket_io_client.dart';
+
+import 'dart:async';
+
 
 
 void main() {
@@ -42,17 +45,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _locationMessage = "";
   var phone;
-  final formKey = GlobalKey<FormState>();
   final buttontext = new TextStyle(fontSize: 24.0);
   final coordtext = new TextStyle(fontSize: 24.0);
-  final mycontroller = TextEditingController();
   var position;
-  final Telephony telephony = Telephony.instance;
-
+  bool isConnected = false;
+  var socket;
+  
+  
   @override
   void initState() {
     super.initState();
     initPlatformState();
+    connectToServer();
   }
 
   Future<void> initPlatformState() async {
@@ -60,9 +64,26 @@ class _HomeScreenState extends State<HomeScreen> {
     // If the widget was removed from the tree while the asynchronous platform
     // message was in flight, we want to discard the reply rather than calling
     // setState to update our non-existent appearance.
-
-    await [Permission.sms, Permission.locationWhenInUse].request();
+    await Permission.locationWhenInUse.request();
     // position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+  }
+
+    void connectToServer() {
+      // Configure socket transports must be sepecified
+      socket = io('http://192.168.0.7:8080', <String, dynamic>{
+        'transports': ['websocket'],
+        'autoConnect': false,
+      });
+     
+      // Connect to websocket
+      socket.connect();
+     
+      // Handle socket events
+      socket.on('connect', (_) {
+        print('connect: ${socket.id}');
+        isConnected = true;
+      });
+   
   }
 
   void _getCurrentLocation() async {
@@ -70,21 +91,23 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
         _locationMessage = "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
       });
-      _sendsms(phone);
+      _sendLocation();
 
   }
 
-  void _sendsms(String number) {
+  void _sendLocation() {
     // await _getPermission();
     print("Mensaje enviado");
     print(position);
     String msg = "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
     String link = "https://www.google.com/maps/place/${position.latitude},${position.longitude}";
     print(msg);
-    telephony.sendSms(
-      to: number,
-      message: "Encuéntrame:" + "\n\n" + msg + "\n\n" + link,
-    );
+
+
+    if (isConnected) {
+      print("connected");
+      socket.emit('stream', msg + '\n' + link);
+    }
           
     Fluttertoast.showToast(
       msg: "Su ubicación ha sido enviada.",
@@ -122,44 +145,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            new Container(
-              padding: const EdgeInsets.fromLTRB(30, 0, 30, 50),
-              child: Form(
-                key: formKey,
-                child: TextFormField(
-                  decoration: new InputDecoration(
-                    labelText: "Número telefónico",
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  style: TextStyle(
-                    fontSize: 20.0,
-                    color: Colors.black             
-                  ),
-                  // onSaved: ,
-                  onSaved: (String?value) {
-                    setState(() => phone = value);
-                  },
-                  validator: (value) {
-                    if (value != null && value.length < 1){
-                      return "El número telefónico no puede estar vacío.";
-                    } else if (value != null && value.length < 10) {
-                      return "Inserte un número telefónico válido.";
-                    } else {
-                      return null;
-                    }
-                  },
-                ),
-              ),
-            ),
 
             TextButton(
               onPressed: () {
-                final isValid = formKey.currentState!.validate();
-                if (isValid){
-                  formKey.currentState!.save();
-                  _getCurrentLocation();
-                }
+                _getCurrentLocation();
               },
               child: Text(
                 "Enviar mi ubicación",
