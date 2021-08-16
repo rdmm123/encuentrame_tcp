@@ -49,6 +49,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isConnected = false;
   final formKey = GlobalKey<FormState>();
   var favorites = <String>{};
+  final TextEditingController ipController = TextEditingController();
+  final TextEditingController portController = TextEditingController();
   
 
   @override
@@ -226,15 +228,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 List addressSplit = address.split(':');
                 return ListTile(
                   title: Text(
-                    'IP: ' + addressSplit[0] + '      Port: ' + addressSplit[1],
+                    'IP: ' + addressSplit[0] + '    Port: ' + addressSplit[1],
                     style: TextStyle(fontSize: 20.0),
                   ),
                   // Code I added //
-                  trailing: Icon(Icons.delete),
+                  trailing: IconButton(
+                    onPressed: () {
+                      setState(() => favorites.remove(address));
+                      setPageState(() => favorites.remove(address));
+                      _save();
+                    },
+                    icon: Icon(Icons.delete)
+                  ),
                   onTap: () {
-                    setState(() => favorites.remove(address));
-                    setPageState(() => favorites.remove(address));
-                    _save();
+                    if (!isConnected){
+                      Navigator.pop(context);
+                      _setFormFields(address);
+                    } else {
+                      Fluttertoast.showToast(
+                        msg: "Debe desconectarse del servidor actual antes de cambiar de dirección.",
+                        toastLength: Toast.LENGTH_SHORT,
+                        gravity: ToastGravity.BOTTOM,
+                        timeInSecForIosWeb: 1,
+                        fontSize: 16);
+                    }
                   },
                   // End //
                 );
@@ -255,6 +272,14 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
     );
+  }
+
+  void _setFormFields(String address) {
+    List addressSplit = address.split(':');
+    ip = addressSplit[0];
+    port = addressSplit[1];
+    ipController.text = ip;
+    portController.text = port;
   }
 
   @override
@@ -359,6 +384,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               RegExp(r'[0-9]*\.?[0-9]*'))
                         ],
                         enabled: !isConnected,
+                        controller: ipController,
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(0, 15, 0, 0),
@@ -384,6 +410,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             FilteringTextInputFormatter.digitsOnly
                           ],
                           enabled: !isConnected,
+                          controller: portController,
                         ),
                       ),
                     ],
