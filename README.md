@@ -1,6 +1,6 @@
 # location_tcp
 
-This project consists of an app that is able to get the user's location using the [Geolocator](https://pub.dev/packages/geolocator) plugin and send it vía sms with the [Telephony](https://pub.dev/packages/telephony) plugin.
+This project consists of an app that is able to get the user's location using the [Geolocator](https://pub.dev/packages/geolocator) plugin and send it vía sms with the [socket_io_client](https://pub.dev/packages/socket_io_client) plugin. This repo also includes a server side that is built using Dart's [socket_io](https://pub.dev/packages/socket_io).
 
 ## Getting Started
 
