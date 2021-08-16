@@ -41,7 +41,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _locationMessage = "";
-  var position, socket, ip, port;
+  var position, socket, ip, port, lastIp, lastPort;
   final buttontext = new TextStyle(fontSize: 24.0);
   final coordtext = new TextStyle(fontSize: 24.0);
   bool isConnected = false;
@@ -111,13 +111,13 @@ class _HomeScreenState extends State<HomeScreen> {
       print('Connection lost.');
       setState(() {
         isConnected = false;
-        Fluttertoast.showToast(
+      });
+      Fluttertoast.showToast(
           msg: "Servidor desconectado.",
           toastLength: Toast.LENGTH_SHORT,
           gravity: ToastGravity.BOTTOM,
           timeInSecForIosWeb: 1,
           fontSize: 16);
-      });
     });
   }
 
@@ -153,7 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget disconnectButton(){
+  Widget disconnectButton() {
     return TextButton(
       onPressed: () {
         socket.disconnect();
@@ -163,12 +163,11 @@ class _HomeScreenState extends State<HomeScreen> {
         style: buttontext,
       ),
       style: TextButton.styleFrom(
-          primary: Colors.white,
-          backgroundColor: Colors.redAccent),
+          primary: Colors.white, backgroundColor: Colors.redAccent),
     );
   }
 
-  Widget connectButton(){
+  Widget connectButton() {
     return TextButton(
       onPressed: () {
         final isValid = formKey.currentState!.validate();
@@ -248,6 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         FilteringTextInputFormatter.allow(
                             RegExp(r'[0-9]*\.?[0-9]*'))
                       ],
+                      enabled: !isConnected,
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 15, 0, 0),
@@ -272,6 +272,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         inputFormatters: <TextInputFormatter>[
                           FilteringTextInputFormatter.digitsOnly
                         ],
+                        enabled: !isConnected,
                       ),
                     ),
                   ],
@@ -280,30 +281,32 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             Padding(
               padding: const EdgeInsets.only(left: 40, right: 40),
-              child: Flexible(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    isConnected ? disconnectButton() : connectButton(),
-                    TextButton(
-                      onPressed: () {
-                        final isValid = formKey.currentState!.validate();
-                        if (isValid) {
-                          formKey.currentState!.save();
-                          _getCurrentLocation();
-                        }
-                      },
-                      child: Text(
-                        "Enviar\nubicación",
-                        style: buttontext,
-                        textAlign: TextAlign.center,
-                      ),
-                      style: TextButton.styleFrom(
-                          primary: Colors.white,
-                          backgroundColor: Theme.of(context).primaryColor),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  isConnected ? disconnectButton() : connectButton(),
+                  TextButton(
+                    onPressed: !isConnected
+                        ? null
+                        : () {
+                            final isValid = formKey.currentState!.validate();
+                            if (isValid) {
+                              formKey.currentState!.save();
+                              _getCurrentLocation();
+                            }
+                          },
+                    child: Text(
+                      "Enviar\nubicación",
+                      style: buttontext,
+                      textAlign: TextAlign.center,
                     ),
-                  ],
-                ),
+                    style: TextButton.styleFrom(
+                        primary: Colors.white,
+                        backgroundColor: !isConnected
+                            ? Theme.of(context).disabledColor
+                            : Theme.of(context).primaryColor),
+                  ),
+                ],
               ),
             ),
             Text(
