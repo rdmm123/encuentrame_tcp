@@ -4,6 +4,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 
 import 'dart:async';
 
@@ -41,16 +43,19 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _locationMessage = "";
-  var position, socket, ip, port, lastIp, lastPort;
-  final buttontext = new TextStyle(fontSize: 24.0);
-  final coordtext = new TextStyle(fontSize: 24.0);
+  var position, socket, ip, port;
+  final buttontext = new TextStyle(fontSize: 20.0);
+  final coordtext = new TextStyle(fontSize: 22.0);
   bool isConnected = false;
   final formKey = GlobalKey<FormState>();
+  var favorites = <String>{};
+  
 
   @override
   void initState() {
     super.initState();
     initPlatformState();
+    _read();
     // connectToServer();
   }
 
@@ -60,14 +65,34 @@ class _HomeScreenState extends State<HomeScreen> {
     // message was in flight, we want to discard the reply rather than calling
     // setState to update our non-existent appearance.
     await Permission.locationWhenInUse.request();
-    // position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    setState(() {
+      _locationMessage = "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
+    });
   }
+
+  _read() async {
+        final prefs = await SharedPreferences.getInstance();
+        final key = 'favorites';
+        List<String>? value = prefs.getStringList(key);
+        if (value != null) {
+          favorites = value.toSet();
+        }
+      }
+      
+    _save() async {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'favorites';
+      prefs.setStringList(key, favorites.toList());
+      print('saved favorites');
+    }
 
   void connectToServer() {
     // Configure socket transports must be sepecified
     socket = io('http://' + ip + ':' + port, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
+      'reconnection': false,
     });
 
     // Connect to websocket
@@ -79,6 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         isConnected = true;
       });
+      Fluttertoast.cancel();
       Fluttertoast.showToast(
           msg: "Conectado exitosamente a " + 'http://' + ip + ':' + port + ".",
           toastLength: Toast.LENGTH_SHORT,
@@ -88,17 +114,19 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     socket.on('connect_error', (_) {
-      if (!isConnected) {
-        Fluttertoast.showToast(
-            msg: "No se pudo conectar al servidor.",
-            toastLength: Toast.LENGTH_SHORT,
-            gravity: ToastGravity.BOTTOM,
-            timeInSecForIosWeb: 1,
-            fontSize: 16);
-      }
+      print("attempting reconection");
+      Fluttertoast.cancel();
+      Fluttertoast.showToast(
+          msg: "No se pudo conectar al servidor.",
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+          timeInSecForIosWeb: 1,
+          fontSize: 16);
     });
 
     socket.on('connect_timeout', (_) {
+      print("attempting reconection");
+      Fluttertoast.cancel();
       Fluttertoast.showToast(
           msg: "No se pudo conectar al servidor.",
           toastLength: Toast.LENGTH_SHORT,
@@ -112,6 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         isConnected = false;
       });
+      Fluttertoast.cancel();
       Fluttertoast.showToast(
           msg: "Servidor desconectado.",
           toastLength: Toast.LENGTH_SHORT,
@@ -154,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget disconnectButton() {
-    return TextButton(
+    return ElevatedButton(
       onPressed: () {
         socket.disconnect();
       },
@@ -168,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget connectButton() {
-    return TextButton(
+    return ElevatedButton(
       onPressed: () {
         final isValid = formKey.currentState!.validate();
         if (isValid) {
@@ -185,24 +214,68 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: Theme.of(context).primaryColor),
     );
   }
+  
+  void _pushFavorites() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) {
+          return StatefulBuilder(
+              builder: (BuildContext context, StateSetter setPageState) {
+            final Iterable<ListTile> tiles = favorites.map(
+              (String address) {
+                List addressSplit = address.split(':');
+                return ListTile(
+                  title: Text(
+                    'IP: ' + addressSplit[0] + '      Port: ' + addressSplit[1],
+                    style: TextStyle(fontSize: 20.0),
+                  ),
+                  // Code I added //
+                  trailing: Icon(Icons.delete),
+                  onTap: () {
+                    setState(() => favorites.remove(address));
+                    setPageState(() => favorites.remove(address));
+                    _save();
+                  },
+                  // End //
+                );
+              },
+            );
+            final List<Widget> divided = ListTile.divideTiles(
+              context: context,
+              tiles: tiles,
+            ).toList();
 
-  // Future _getPermission() async {
-  //   await Permission.sms.request();
-  // }
+            return Scaffold(
+              appBar: AppBar(
+                title: Text('Favoritos'),
+              ),
+              body: ListView(children: divided),
+            );
+          });
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text("Encuéntrame"),
+        actions: [
+          IconButton(onPressed: _pushFavorites, icon: Icon(Icons.star))
+        ],
       ),
       body: Align(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: <Widget>[
-            Flexible(
-              child: Container(
-                // margin: EdgeInsets.only(bottom: 63),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Container(
+                padding: EdgeInsets.only(
+                  // top: !isConnected ?  0 : 37,
+                  bottom: 40
+                ),
                 child: SizedBox(
                   width: 150,
                   child: FittedBox(
@@ -214,107 +287,156 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-            ),
-            Container(
-              padding: const EdgeInsets.fromLTRB(40, 0, 40, 0),
-              child: Form(
-                key: formKey,
-                child: Column(
-                  children: [
-                    TextFormField(
-                      decoration: new InputDecoration(
-                        labelText: "Dirección IP",
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.number,
-                      style: TextStyle(fontSize: 20.0, color: Colors.black),
-                      // onSaved: ,
-                      onSaved: (String? value) {
-                        setState(() => ip = value);
-                      },
-                      validator: (value) {
-                        RegExp regex = RegExp(
-                            r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$');
-                        bool valid = regex.hasMatch(value!);
+              Padding(
+                padding: EdgeInsets.only(bottom: 30),
+                child: Text(
+                  _locationMessage,
+                  style: coordtext,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.fromLTRB(40, 0, 40, 60),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    children: [
+                      TextButton(
+                      onPressed: () {
+                        final isValid =
+                            formKey.currentState!.validate();
+                        if (isValid) {
+                          formKey.currentState!.save();
+                          String newFav = ip + ':' + port;
+                          if (!favorites.contains(newFav)) {
+                            favorites.add(newFav);
 
-                        if (!valid) {
-                          return "La dirección IP no es válida.";
-                        } else {
-                          return null;
+                            final snackbar = SnackBar(
+                              content: const Text('Añadido a favoritos.'),
+                              action: SnackBarAction(
+                                label: 'DESHACER',
+                                onPressed: () {
+                                  favorites.remove(newFav);
+                                }
+                              ),
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(snackbar);
+                            _save();
+                          }
                         }
+
                       },
-                      inputFormatters: <TextInputFormatter>[
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'[0-9]*\.?[0-9]*'))
-                      ],
-                      enabled: !isConnected,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(0, 15, 0, 0),
-                      child: TextFormField(
+                      child: Text("Añadir a favoritos", style: TextStyle(fontSize: 15.0)),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size(50, 30),
+                        // backgroundColor: Colors.blue
+                      )),
+                      TextFormField(
                         decoration: new InputDecoration(
-                          labelText: "Número de Puerto",
+                          labelText: "Dirección IP",
                           border: OutlineInputBorder(),
                         ),
                         keyboardType: TextInputType.number,
                         style: TextStyle(fontSize: 20.0, color: Colors.black),
                         // onSaved: ,
                         onSaved: (String? value) {
-                          setState(() => port = value);
+                          setState(() => ip = value);
                         },
                         validator: (value) {
-                          if (value!.length < 1 || int.parse(value) > 65535) {
-                            return "Ingrese un número de puerto válido.";
+                          RegExp regex = RegExp(
+                              r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$');
+                          bool valid = regex.hasMatch(value!);
+        
+                          if (!valid) {
+                            return "La dirección IP no es válida.";
                           } else {
                             return null;
                           }
                         },
                         inputFormatters: <TextInputFormatter>[
-                          FilteringTextInputFormatter.digitsOnly
+                          FilteringTextInputFormatter.allow(
+                              RegExp(r'[0-9]*\.?[0-9]*'))
                         ],
                         enabled: !isConnected,
                       ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(0, 15, 0, 0),
+                        child: TextFormField(
+                          decoration: new InputDecoration(
+                            labelText: "Número de Puerto",
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          style: TextStyle(fontSize: 20.0, color: Colors.black),
+                          // onSaved: ,
+                          onSaved: (String? value) {
+                            setState(() => port = value);
+                          },
+                          validator: (value) {
+                            if (value!.length < 1 || int.parse(value) > 65535) {
+                              return "Ingrese un número de puerto válido.";
+                            } else {
+                              return null;
+                            }
+                          },
+                          inputFormatters: <TextInputFormatter>[
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
+                          enabled: !isConnected,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.only(
+                    left: 40, right: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                            child: isConnected
+                                ? disconnectButton()
+                                : connectButton()),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: !isConnected
+                                ? null
+                                : () {
+                                    final isValid =
+                                        formKey.currentState!.validate();
+                                    if (isValid) {
+                                      formKey.currentState!.save();
+                                      _getCurrentLocation();
+                                    }
+                                  },
+                            child: Text(
+                              "Enviar ubicación",
+                              style: buttontext,
+                              textAlign: TextAlign.center,
+                            ),
+                            style: TextButton.styleFrom(
+                                primary: Colors.white,
+                                backgroundColor: !isConnected
+                                    ? Theme.of(context).disabledColor
+                                    : Theme.of(context).primaryColor),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 40, right: 40),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  isConnected ? disconnectButton() : connectButton(),
-                  TextButton(
-                    onPressed: !isConnected
-                        ? null
-                        : () {
-                            final isValid = formKey.currentState!.validate();
-                            if (isValid) {
-                              formKey.currentState!.save();
-                              _getCurrentLocation();
-                            }
-                          },
-                    child: Text(
-                      "Enviar\nubicación",
-                      style: buttontext,
-                      textAlign: TextAlign.center,
-                    ),
-                    style: TextButton.styleFrom(
-                        primary: Colors.white,
-                        backgroundColor: !isConnected
-                            ? Theme.of(context).disabledColor
-                            : Theme.of(context).primaryColor),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              _locationMessage,
-              style: coordtext,
-              textAlign: TextAlign.center,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
