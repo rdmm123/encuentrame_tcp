@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart';
 
 import 'dart:async';
-
-
 
 void main() {
   runApp(MyApp());
@@ -36,27 +35,23 @@ class MyApp extends StatelessWidget {
 }
 
 class HomeScreen extends StatefulWidget {
-
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-
   String _locationMessage = "";
-  var phone;
+  var position, socket, ip, port;
   final buttontext = new TextStyle(fontSize: 24.0);
   final coordtext = new TextStyle(fontSize: 24.0);
-  var position;
   bool isConnected = false;
-  var socket;
-  
-  
+  final formKey = GlobalKey<FormState>();
+
   @override
   void initState() {
     super.initState();
     initPlatformState();
-    connectToServer();
+    // connectToServer();
   }
 
   Future<void> initPlatformState() async {
@@ -68,54 +63,128 @@ class _HomeScreenState extends State<HomeScreen> {
     // position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
   }
 
-    void connectToServer() {
-      // Configure socket transports must be sepecified
-      socket = io('http://192.168.0.7:8080', <String, dynamic>{
-        'transports': ['websocket'],
-        'autoConnect': false,
-      });
-     
-      // Connect to websocket
-      socket.connect();
-     
-      // Handle socket events
-      socket.on('connect', (_) {
-        print('connect: ${socket.id}');
+  void connectToServer() {
+    // Configure socket transports must be sepecified
+    socket = io('http://' + ip + ':' + port, <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': false,
+    });
+
+    // Connect to websocket
+    socket.connect();
+
+    // Handle socket events
+    socket.on('connect', (_) {
+      print('Connect: ${socket.id}');
+      setState(() {
         isConnected = true;
       });
-   
+      Fluttertoast.showToast(
+          msg: "Conectado exitosamente a " + 'http://' + ip + ':' + port + ".",
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+          timeInSecForIosWeb: 1,
+          fontSize: 16);
+    });
+
+    socket.on('connect_error', (_) {
+      if (!isConnected) {
+        Fluttertoast.showToast(
+            msg: "No se pudo conectar al servidor.",
+            toastLength: Toast.LENGTH_SHORT,
+            gravity: ToastGravity.BOTTOM,
+            timeInSecForIosWeb: 1,
+            fontSize: 16);
+      }
+    });
+
+    socket.on('connect_timeout', (_) {
+      Fluttertoast.showToast(
+          msg: "No se pudo conectar al servidor.",
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+          timeInSecForIosWeb: 1,
+          fontSize: 16);
+    });
+
+    socket.on('disconnect', (_) {
+      print('Connection lost.');
+      setState(() {
+        isConnected = false;
+        Fluttertoast.showToast(
+          msg: "Servidor desconectado.",
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+          timeInSecForIosWeb: 1,
+          fontSize: 16);
+      });
+    });
   }
 
   void _getCurrentLocation() async {
-    position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high);
     setState(() {
-        _locationMessage = "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
-      });
-      _sendLocation();
-
+      _locationMessage =
+          "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
+    });
+    _sendLocation();
   }
 
   void _sendLocation() {
     // await _getPermission();
     print("Mensaje enviado");
     print(position);
-    String msg = "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
-    String link = "https://www.google.com/maps/place/${position.latitude},${position.longitude}";
+    String msg =
+        "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
+    String link =
+        "https://www.google.com/maps/place/${position.latitude},${position.longitude}";
     print(msg);
 
-
     if (isConnected) {
-      print("connected");
       socket.emit('stream', msg + '\n' + link);
+
+      Fluttertoast.showToast(
+          msg: "Su ubicación ha sido enviada.",
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+          timeInSecForIosWeb: 1,
+          fontSize: 16);
     }
-          
-    Fluttertoast.showToast(
-      msg: "Su ubicación ha sido enviada.",
-      toastLength: Toast.LENGTH_SHORT,
-      gravity: ToastGravity.BOTTOM,
-      timeInSecForIosWeb: 1,
-      fontSize: 16
-    );      
+  }
+
+  Widget disconnectButton(){
+    return TextButton(
+      onPressed: () {
+        socket.disconnect();
+      },
+      child: Text(
+        "Desconectar",
+        style: buttontext,
+      ),
+      style: TextButton.styleFrom(
+          primary: Colors.white,
+          backgroundColor: Colors.redAccent),
+    );
+  }
+
+  Widget connectButton(){
+    return TextButton(
+      onPressed: () {
+        final isValid = formKey.currentState!.validate();
+        if (isValid) {
+          formKey.currentState!.save();
+          connectToServer();
+        }
+      },
+      child: Text(
+        "Conectar",
+        style: buttontext,
+      ),
+      style: TextButton.styleFrom(
+          primary: Colors.white,
+          backgroundColor: Theme.of(context).primaryColor),
+    );
   }
 
   // Future _getPermission() async {
@@ -130,39 +199,116 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Align(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: <Widget>[
-            Container(
-              margin: EdgeInsets.only(bottom: 63),
-              child: SizedBox(
-                width: 150,
-                child: FittedBox(
-                  fit: BoxFit.contain,
-                  child: Icon(
-                    Icons.location_on,
-                    color: Theme.of(context).primaryColor,
+            Flexible(
+              child: Container(
+                // margin: EdgeInsets.only(bottom: 63),
+                child: SizedBox(
+                  width: 150,
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: Icon(
+                      Icons.location_on,
+                      color: Theme.of(context).primaryColor,
+                    ),
                   ),
                 ),
               ),
             ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(40, 0, 40, 0),
+              child: Form(
+                key: formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      decoration: new InputDecoration(
+                        labelText: "Dirección IP",
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
+                      style: TextStyle(fontSize: 20.0, color: Colors.black),
+                      // onSaved: ,
+                      onSaved: (String? value) {
+                        setState(() => ip = value);
+                      },
+                      validator: (value) {
+                        RegExp regex = RegExp(
+                            r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$');
+                        bool valid = regex.hasMatch(value!);
 
-            TextButton(
-              onPressed: () {
-                _getCurrentLocation();
-              },
-              child: Text(
-                "Enviar mi ubicación",
-                style: buttontext,
-              ),
-              style: TextButton.styleFrom(
-                primary: Colors.white,
-                backgroundColor: Colors.blueAccent
+                        if (!valid) {
+                          return "La dirección IP no es válida.";
+                        } else {
+                          return null;
+                        }
+                      },
+                      inputFormatters: <TextInputFormatter>[
+                        FilteringTextInputFormatter.allow(
+                            RegExp(r'[0-9]*\.?[0-9]*'))
+                      ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 15, 0, 0),
+                      child: TextFormField(
+                        decoration: new InputDecoration(
+                          labelText: "Número de Puerto",
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(fontSize: 20.0, color: Colors.black),
+                        // onSaved: ,
+                        onSaved: (String? value) {
+                          setState(() => port = value);
+                        },
+                        validator: (value) {
+                          if (value!.length < 1 || int.parse(value) > 65535) {
+                            return "Ingrese un número de puerto válido.";
+                          } else {
+                            return null;
+                          }
+                        },
+                        inputFormatters: <TextInputFormatter>[
+                          FilteringTextInputFormatter.digitsOnly
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            SizedBox(height: 50),
+            Padding(
+              padding: const EdgeInsets.only(left: 40, right: 40),
+              child: Flexible(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    isConnected ? disconnectButton() : connectButton(),
+                    TextButton(
+                      onPressed: () {
+                        final isValid = formKey.currentState!.validate();
+                        if (isValid) {
+                          formKey.currentState!.save();
+                          _getCurrentLocation();
+                        }
+                      },
+                      child: Text(
+                        "Enviar\nubicación",
+                        style: buttontext,
+                        textAlign: TextAlign.center,
+                      ),
+                      style: TextButton.styleFrom(
+                          primary: Colors.white,
+                          backgroundColor: Theme.of(context).primaryColor),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             Text(
               _locationMessage,
-              style:coordtext,
+              style: coordtext,
               textAlign: TextAlign.center,
             ),
           ],

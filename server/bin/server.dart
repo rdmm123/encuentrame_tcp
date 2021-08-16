@@ -6,7 +6,7 @@ void main() {
   final server = Server();
   
   server.on('connection', (client){
-    print('Connect to $client');
+    print('Connect to ${client.id}');
 
     client.on('stream', (data){
       print('Data from client:\n$data');
