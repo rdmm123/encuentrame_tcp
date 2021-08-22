@@ -5,9 +5,8 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
 
-
-import 'dart:async';
 
 void main() {
   runApp(MyApp());
@@ -37,6 +36,8 @@ class MyApp extends StatelessWidget {
   }
 }
 
+enum NetProtocol { udp, tcp }
+
 class HomeScreen extends StatefulWidget {
   @override
   _HomeScreenState createState() => _HomeScreenState();
@@ -52,7 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
   var favorites = <String>{};
   final TextEditingController ipController = TextEditingController();
   final TextEditingController portController = TextEditingController();
-  
+  NetProtocol? protocol = NetProtocol.tcp;
 
   @override
   void initState() {
@@ -68,27 +69,29 @@ class _HomeScreenState extends State<HomeScreen> {
     // message was in flight, we want to discard the reply rather than calling
     // setState to update our non-existent appearance.
     await Permission.locationWhenInUse.request();
-    position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high);
     setState(() {
-      _locationMessage = "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
+      _locationMessage =
+          "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
     });
   }
 
   _read() async {
-        final prefs = await SharedPreferences.getInstance();
-        final key = 'favorites';
-        List<String>? value = prefs.getStringList(key);
-        if (value != null) {
-          favorites = value.toSet();
-        }
-      }
-      
-    _save() async {
-      final prefs = await SharedPreferences.getInstance();
-      final key = 'favorites';
-      prefs.setStringList(key, favorites.toList());
-      print('saved favorites');
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'favorites';
+    List<String>? value = prefs.getStringList(key);
+    if (value != null) {
+      favorites = value.toSet();
     }
+  }
+
+  _save() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'favorites';
+    prefs.setStringList(key, favorites.toList());
+    print('saved favorites');
+  }
 
   void connectToServer() {
     // Configure socket transports must be sepecified
@@ -160,10 +163,14 @@ class _HomeScreenState extends State<HomeScreen> {
       _locationMessage =
           "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
     });
-    _sendLocation();
+    if (protocol == NetProtocol.tcp) {
+      _sendTCPLocation();
+    } else if (protocol == NetProtocol.udp) {
+      _sendUDPLocation();
+    }
   }
 
-  void _sendLocation() {
+  void _sendTCPLocation() {
     // await _getPermission();
     print("Mensaje enviado");
     print(position);
@@ -173,16 +180,38 @@ class _HomeScreenState extends State<HomeScreen> {
         "https://www.google.com/maps/place/${position.latitude},${position.longitude}";
     print(msg);
 
-    if (isConnected) {
-      socket.emit('stream', msg + '\n' + link);
+    socket.emit('stream', msg + '\n' + link);
 
-      Fluttertoast.showToast(
-          msg: "Su ubicación ha sido enviada.",
-          toastLength: Toast.LENGTH_SHORT,
-          gravity: ToastGravity.BOTTOM,
-          timeInSecForIosWeb: 1,
-          fontSize: 16);
-    }
+    Fluttertoast.showToast(
+        msg: "Su ubicación ha sido enviada.",
+        toastLength: Toast.LENGTH_SHORT,
+        gravity: ToastGravity.BOTTOM,
+        timeInSecForIosWeb: 1,
+        fontSize: 16);
+  }
+
+  void _sendUDPLocation() {
+    // await _getPermission();
+    print("Mensaje enviado");
+    print(position);
+    String msg =
+        "Latitud: ${position.latitude}\nLongitud: ${position.longitude}";
+    String link =
+        "https://www.google.com/maps/place/${position.latitude},${position.longitude}";
+    print(msg);
+    String toSend = msg + '\n' + link;
+
+    RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).then((RawDatagramSocket socket){
+      print('Sending to ${ip}:${int.parse(port)}');
+      socket.send(toSend.codeUnits, InternetAddress(ip), int.parse(port));
+    });
+
+    Fluttertoast.showToast(
+        msg: "Su ubicación ha sido enviada.",
+        toastLength: Toast.LENGTH_SHORT,
+        gravity: ToastGravity.BOTTOM,
+        timeInSecForIosWeb: 1,
+        fontSize: 16);
   }
 
   Widget disconnectButton() {
@@ -201,23 +230,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget connectButton() {
     return ElevatedButton(
-      onPressed: () {
-        final isValid = formKey.currentState!.validate();
-        if (isValid) {
-          formKey.currentState!.save();
-          connectToServer();
-        }
-      },
+      onPressed: protocol != NetProtocol.tcp
+          ? null
+          : () {
+              final isValid = formKey.currentState!.validate();
+              if (isValid) {
+                formKey.currentState!.save();
+                connectToServer();
+              }
+            },
       child: Text(
         "Conectar",
         style: buttontext,
       ),
       style: TextButton.styleFrom(
           primary: Colors.white,
-          backgroundColor: Theme.of(context).primaryColor),
+          backgroundColor: protocol != NetProtocol.tcp
+              ? Theme.of(context).disabledColor
+              : Theme.of(context).primaryColor),
     );
   }
-  
+
   void _pushFavorites() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -234,24 +267,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   // Code I added //
                   trailing: IconButton(
-                    onPressed: () {
-                      setState(() => favorites.remove(address));
-                      setPageState(() => favorites.remove(address));
-                      _save();
-                    },
-                    icon: Icon(Icons.delete)
-                  ),
+                      onPressed: () {
+                        setState(() => favorites.remove(address));
+                        setPageState(() => favorites.remove(address));
+                        _save();
+                      },
+                      icon: Icon(Icons.delete)),
                   onTap: () {
-                    if (!isConnected){
+                    if (!isConnected) {
                       Navigator.pop(context);
                       _setFormFields(address);
                     } else {
                       Fluttertoast.showToast(
-                        msg: "Debe desconectarse del servidor actual antes de cambiar de dirección.",
-                        toastLength: Toast.LENGTH_SHORT,
-                        gravity: ToastGravity.BOTTOM,
-                        timeInSecForIosWeb: 1,
-                        fontSize: 16);
+                          msg:
+                              "Debe desconectarse del servidor actual antes de cambiar de dirección.",
+                          toastLength: Toast.LENGTH_SHORT,
+                          gravity: ToastGravity.BOTTOM,
+                          timeInSecForIosWeb: 1,
+                          fontSize: 16);
                     }
                   },
                   // End //
@@ -299,11 +332,10 @@ class _HomeScreenState extends State<HomeScreen> {
             children: <Widget>[
               Container(
                 padding: EdgeInsets.only(
-                  // top: !isConnected ?  0 : 37,
-                  bottom: 40
-                ),
+                    // top: !isConnected ?  0 : 37,
+                    bottom: 40),
                 child: SizedBox(
-                  width: 150,
+                  width: 130,
                   child: FittedBox(
                     fit: BoxFit.contain,
                     child: Icon(
@@ -322,42 +354,41 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.fromLTRB(40, 0, 40, 60),
+                padding: const EdgeInsets.fromLTRB(40, 0, 40, 40),
                 child: Form(
                   key: formKey,
                   child: Column(
                     children: [
                       TextButton(
-                      onPressed: () {
-                        final isValid =
-                            formKey.currentState!.validate();
-                        if (isValid) {
-                          formKey.currentState!.save();
-                          String newFav = ip + ':' + port;
-                          if (!favorites.contains(newFav)) {
-                            favorites.add(newFav);
+                          onPressed: () {
+                            final isValid = formKey.currentState!.validate();
+                            if (isValid) {
+                              formKey.currentState!.save();
+                              String newFav = ip + ':' + port;
+                              if (!favorites.contains(newFav)) {
+                                favorites.add(newFav);
 
-                            final snackbar = SnackBar(
-                              content: const Text('Añadido a favoritos.'),
-                              action: SnackBarAction(
-                                label: 'DESHACER',
-                                onPressed: () {
-                                  favorites.remove(newFav);
-                                }
-                              ),
-                            );
-                            ScaffoldMessenger.of(context).showSnackBar(snackbar);
-                            _save();
-                          }
-                        }
-
-                      },
-                      child: Text("Añadir a favoritos", style: TextStyle(fontSize: 15.0)),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: Size(50, 30),
-                        // backgroundColor: Colors.blue
-                      )),
+                                final snackbar = SnackBar(
+                                  content: const Text('Añadido a favoritos.'),
+                                  action: SnackBarAction(
+                                      label: 'DESHACER',
+                                      onPressed: () {
+                                        favorites.remove(newFav);
+                                      }),
+                                );
+                                ScaffoldMessenger.of(context)
+                                    .showSnackBar(snackbar);
+                                _save();
+                              }
+                            }
+                          },
+                          child: Text("Añadir a favoritos",
+                              style: TextStyle(fontSize: 15.0)),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: Size(50, 30),
+                            // backgroundColor: Colors.blue
+                          )),
                       TextFormField(
                         decoration: new InputDecoration(
                           labelText: "Dirección IP",
@@ -373,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           RegExp regex = RegExp(
                               r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)(\.(?!$)|$)){4}$');
                           bool valid = regex.hasMatch(value!);
-        
+
                           if (!valid) {
                             return "La dirección IP no es válida.";
                           } else {
@@ -414,13 +445,36 @@ class _HomeScreenState extends State<HomeScreen> {
                           controller: portController,
                         ),
                       ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Text('Protocolo:', style: TextStyle(fontSize: 20.0)),
+                          Radio(
+                              value: NetProtocol.tcp,
+                              groupValue: protocol,
+                              onChanged: (NetProtocol? value) {
+                                setState(() {
+                                  protocol = value;
+                                });
+                              }),
+                          Text('TCP', style: TextStyle(fontSize: 20.0)),
+                          Radio(
+                              value: NetProtocol.udp,
+                              groupValue: protocol,
+                              onChanged: (NetProtocol? value) {
+                                setState(() {
+                                  protocol = value;
+                                });
+                              }),
+                          Text('UDP', style: TextStyle(fontSize: 20.0)),
+                        ],
+                      ),
                     ],
                   ),
                 ),
               ),
               Padding(
-                padding: EdgeInsets.only(
-                    left: 40, right: 40),
+                padding: EdgeInsets.only(left: 40, right: 40),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
@@ -436,16 +490,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: !isConnected
-                                ? null
-                                : () {
-                                    final isValid =
-                                        formKey.currentState!.validate();
-                                    if (isValid) {
-                                      formKey.currentState!.save();
-                                      _getCurrentLocation();
-                                    }
-                                  },
+                            onPressed:
+                                !isConnected && protocol == NetProtocol.tcp
+                                    ? null
+                                    : () {
+                                        final isValid =
+                                            formKey.currentState!.validate();
+                                        if (isValid) {
+                                          formKey.currentState!.save();
+                                          _getCurrentLocation();
+                                        }
+                                      },
                             child: Text(
                               "Enviar ubicación",
                               style: buttontext,
@@ -453,9 +508,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             style: TextButton.styleFrom(
                                 primary: Colors.white,
-                                backgroundColor: !isConnected
-                                    ? Theme.of(context).disabledColor
-                                    : Theme.of(context).primaryColor),
+                                backgroundColor:
+                                    !isConnected && protocol == NetProtocol.tcp
+                                        ? Theme.of(context).disabledColor
+                                        : Theme.of(context).primaryColor),
                           ),
                         ),
                       ],
